@@ -85,6 +85,7 @@ echo -e "Possible Actions for ${SECGROUP_NAMES[choice_index]}:"
 echo "1. GET DETAILS"
 echo "2. ADD MY IP for SSH"
 echo "3. REMOVE MY IP for SSH"
+echo "4. REMOVE ALL IP's for SSH"
 echo -e "$HORIZONTALLINE\n"
 
 read -p "PLEASE CHOOSE AN ACTION: " action
@@ -94,7 +95,7 @@ if [ "$action" -eq "$action" 2> /dev/null ]; then
     ip=$(dig @resolver4.opendns.com myip.opendns.com +short)
     echo $ip
 
-    if [ $action -lt 1 -o $action -gt 3 ]; then
+    if [ $action -lt 1 -o $action -gt 4 ]; then
         echo -e "\n==> Enter a number between 1 and 3 <=="
     elif [ $action -eq 1 ]; then
         aws ec2 describe-security-group-rules --filters Name=group-id,Values=${SECGROUP_IDS[choice_index]} --profile $aws_cli_profile
@@ -102,6 +103,13 @@ if [ "$action" -eq "$action" 2> /dev/null ]; then
         aws ec2 authorize-security-group-ingress --group-id ${SECGROUP_IDS[choice_index]} --protocol tcp --port 22 --cidr $ip/32 --profile $aws_cli_profile
     elif [ $action -eq 3 ]; then
         aws ec2 revoke-security-group-ingress --group-id ${SECGROUP_IDS[choice_index]} --protocol tcp --port 22 --cidr $ip/32 --profile $aws_cli_profile
+    elif [ $action -eq 4 ]; then
+        # Get all SSh rules and pass these rules as a parameter to revoke-security-group-ingress
+        inbound_rules=$(aws ec2 describe-security-groups --output json --group-ids ${SECGROUP_IDS[choice_index]} --filters 'Name=ip-permission.from-port,Values=22' --filters 'Name=ip-permission.to-port,Values=22' --query 'SecurityGroups[0].IpPermissions[?ToPort == `22`]' --profile $aws_cli_profile)
+        echo "The following rules will be removed:"
+        echo $inbound_rules
+        inbound_rules_json=$(echo $inbound_rules | jq)
+        aws ec2 revoke-security-group-ingress --cli-input-json "{\"GroupId\": \"${SECGROUP_IDS[choice_index]}\", \"IpPermissions\": $inbound_rules_json}"  --profile $aws_cli_profile
     fi
 else
     echo -e "\n==> This is not a number. Exiting. <=="
